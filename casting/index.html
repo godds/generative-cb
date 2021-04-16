@@ -1,0 +1,151 @@
+<head>
+  <script type="text/javascript" src="https://d3js.org/d3.v5.min.js"></script>
+  <script type="text/javascript" src="noise.js"></script>
+  <script type="text/javascript" src="dat.gui.min.js"></script>
+  <script type="text/javascript" src="FileSaver.min.js"></script>
+  <style>
+    #canvas {
+      width: 100%;
+      height: 100%;
+    }
+    path, circle {
+      fill: none;
+      stroke: #000000;
+      stroke-width: 0.5;
+    }
+  </style>
+</head>
+<body>
+  <svg id="canvas" viewBox="0 0 1000 1000">
+  </svg>
+</body>
+<script>
+  noise.seed(Math.random());
+  let svg = d3.select("svg");
+  let gui = new dat.GUI(); // https://github.com/dataarts/dat.gui/blob/master/API.md
+
+  // "cast" (dashed?) rays from various points around the edge of a shape (a circle)
+
+  let settings = {
+    name: "casting",
+    width: 1000,
+    height: 1000,
+    size: 850,
+    random: false,
+    origins: 3,
+    offset: 0,
+    dashed: false,
+    dash: 25,
+    gap: 10,
+    spread: 0.2,
+    density: 10,
+    save: false
+  };
+
+  // gui.add()
+  gui.add(settings, "width", 100, 2000, 10).onChange(draw);
+  gui.add(settings, "height", 100, 2000, 10).onChange(draw);
+  gui.add(settings, "size", 10, 2000, 1).onChange(draw);
+  gui.add(settings, "random").onChange(reseed);
+  gui.add(settings, "origins", 1, 500, 1).onChange(amendOrigins);
+  gui.add(settings, "offset", 0, 1, 0.01).onChange(reseed);
+  gui.add(settings, "dashed").onChange(draw);
+  gui.add(settings, "dash", 1, 100, 1).onChange(draw);
+  gui.add(settings, "gap", 1, 100, 1).onChange(draw);
+  gui.add(settings, "spread", 0.01, 0.49, 0.01).onChange(draw);
+  gui.add(settings, "density", 1, 100, 1).onChange(draw);
+  gui.add({reseed: () => reseed()}, "reseed");
+  gui.add({save: () => save()}, "save");
+
+  let origins = [];
+
+  function reseed() {
+    origins = [];
+    amendOrigins();
+  }
+
+  function amendOrigins() {
+    if (settings.random) {
+      while (origins.length < settings.origins) {
+        origins.push(Math.random());
+      }
+      if (origins.length > settings.origins) {
+        origins.splice(settings.origins);
+      }
+    }
+    else {
+      origins = [];
+      const increment = 1 / settings.origins;
+      for (let i = 0; i < settings.origins; i++) {
+        origins.push((increment * i) + settings.offset);
+      }
+    }
+    draw();
+  }
+
+  reseed();
+
+  function draw() {
+    svg.selectAll("*").remove();
+
+    const center = { x: settings.width / 2, y: settings.height / 2 };
+    const r = settings.size / 2;
+    const increment = settings.spread / (settings.density / 2);
+    for (let i = 0; i < origins.length; i++) {
+      const origin = getPointOnCircumference(center, r, origins[i]);
+      for (let j = 0; j < settings.density / 2; j++) {
+        const point1 = getPointOnCircumference(center, r, origins[i] + 0.5 + (increment * j));
+        drawLine(origin, point1, settings.dashed, settings.dash, settings.gap);
+        if (j > 0) {
+          const point2 = getPointOnCircumference(center, r, origins[i] + 0.5 - (increment * j));
+          drawLine(origin, point2, settings.dashed, settings.dash, settings.gap);
+        }
+      }
+    }
+  }
+
+  function drawLine(point1, point2, dashed, dash, gap) {
+    if (!dashed) {
+      svg.append("path")
+          .attr("d", `M ${point1.x},${point1.y} L ${point2.x},${point2.y}`);
+    }
+    else {
+      const vector = { x: point2.x - point1.x, y: point2.y - point1.y };
+      const dashVector = scaleVectorToAmplitude(vector, dash);
+      const gapVector = scaleVectorToAmplitude(vector, gap);
+      let currentPoint = point1;
+      while (distanceBetween(currentPoint, point2) >= dash) {
+        svg.append("path")
+            .attr("d", `M ${currentPoint.x},${currentPoint.y} L ${currentPoint.x + dashVector.x},${currentPoint.y + dashVector.y}`);
+        currentPoint = { x: currentPoint.x + dashVector.x + gapVector.x,
+                         y: currentPoint.y + dashVector.y + gapVector.y };
+      }
+    }
+  }
+
+  function getPointOnCircumference(center, r, percent) {
+    return { x: center.x + r * Math.cos(percent * 2 * Math.PI), 
+             y: center.y + r * Math.sin(percent * 2 * Math.PI) };
+  }
+
+  function scaleVectorToAmplitude(vector, amplitude) {
+    let existingAmplitude = getAmplitude(vector);
+    // reduce to unit length vector and then scale to target
+    return { x: vector.x / existingAmplitude * amplitude,
+             y: vector.y / existingAmplitude * amplitude }
+  }
+
+  function getAmplitude(vector) {
+    return Math.sqrt(Math.pow(vector.x, 2) + Math.pow(vector.y, 2));
+  }
+
+  function distanceBetween(pointA, pointB) {
+    return Math.sqrt(Math.pow(pointA.x - pointB.x, 2) + Math.pow(pointA.y - pointB.y, 2));
+  }
+
+  function save() {
+    let blob = new Blob(["<svg id=\"canvas\" viewBox=\"0 0 1000 1000\">", svg.html(), "</svg>"], 
+                        { type: "image/svg+xml;charset=utf-8" });
+    saveAs(blob, `${settings.name}.svg`);
+  }
+</script>

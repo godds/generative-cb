@@ -1,0 +1,130 @@
+<head>
+  <script type="text/javascript" src="https://d3js.org/d3.v5.min.js"></script>
+  <script type="text/javascript" src="noise.js"></script>
+  <script type="text/javascript" src="dat.gui.min.js"></script>
+  <script type="text/javascript" src="FileSaver.min.js"></script>
+  <style>
+    body {
+      background-color: black;
+    }
+    #canvas {
+      width: 100%;
+      height: 100%;
+    }
+    path {
+      fill: none;
+      stroke: #ffffff;
+      stroke-width: 0.5;
+    }
+  </style>
+</head>
+<body>
+  <svg id="canvas" viewBox="0 0 1000 1000">
+  </svg>
+</body>
+<script>
+  noise.seed(Math.random());
+  let svg = d3.select("svg");
+  let gui = new dat.GUI(); // https://github.com/dataarts/dat.gui/blob/master/API.md
+
+  let settings = {
+    name: "eclipse",
+    width: 1000,
+    height: 1000,
+    size: 200,
+    points: 500,
+    iterations: 100,
+    acceleration: 0.5,
+    jitter: 2,
+    save: false
+  };
+
+  // gui.add()
+  gui.add(settings, "width", 100, 2000, 10).onChange(draw);
+  gui.add(settings, "height", 100, 2000, 10).onChange(draw);
+  gui.add(settings, "size", 50, 1000, 1).onChange(draw);
+  gui.add(settings, "points", 10, 2000, 10).onChange(draw);
+  gui.add(settings, "iterations", 1, 10000, 1).onChange(draw);
+  gui.add(settings, "acceleration", 0.01, 20, 0.01).onChange(draw);
+  gui.add(settings, "jitter", 0, 50, 0.1).onChange(draw);
+  gui.add(settings, "save").onChange(save);
+
+  let center = { x: 0, y: 0 };
+
+  draw();
+
+  function draw() {
+    svg.selectAll("*").remove();
+
+    center = { x: settings.width / 2, y: settings.height / 2 };
+    let rays = createInitialRayPoints();
+    rays.forEach(walk);
+    rays.forEach(drawRay);
+  }
+
+  function createInitialRayPoints() {
+    const rays = [];
+    const percentIncrement = 1 / settings.points;
+    const radius = settings.size;
+    for (let i = 0; i < settings.points; i++) {
+      let point = getPointOnCircumference(center, radius, percentIncrement * i);
+      rays.push({ points: [ point ],
+                  velocity: 0,
+                  direction: scaleVectorToAmplitude({ x: point.x - center.x, y: point.y - center.y }, 1) });
+    }
+    return rays;
+  }
+
+  function walk(ray) {
+    for (let i = 0; i < settings.iterations; i++) {
+      let point = ray.points[ray.points.length - 1];
+      let velocityDelta = noise.simplex2(point.x, point.y) * settings.acceleration;
+      let jitter = noise.simplex2(point.y, point.x) * settings.jitter;
+      let newVelocity = ray.velocity + velocityDelta;
+      let newPoint = { x: point.x + (ray.direction.x * newVelocity) + (noise.simplex2(point.x, point.y) * settings.jitter),
+                       y: point.y + (ray.direction.y * newVelocity) + (noise.simplex2(point.y, point.x) * settings.jitter) }
+      if (distanceBetween(center, newPoint) < settings.size) {
+        newVelocity *= -1;
+        newPoint = { x: point.x + (ray.direction.x * newVelocity), 
+                     y: point.y + (ray.direction.y * newVelocity) };
+      }
+      ray.velocity = newVelocity;
+      ray.points.push(newPoint);
+    }
+  }
+
+  function drawRay(ray) {
+    svg.append("path")
+        .datum(ray.points)
+        .attr("d", d3.line()
+                      .x(d => d.x)
+                      .y(d => d.y)
+                      .curve(d3.curveBasis));
+  }
+
+  function getPointOnCircumference(center, r, percent) {
+    return { x: center.x + r * Math.cos(percent * 2 * Math.PI), 
+             y: center.y + r * Math.sin(percent * 2 * Math.PI) };
+  }
+
+  function scaleVectorToAmplitude(vector, amplitude) {
+    let existingAmplitude = getAmplitude(vector);
+    // reduce to unit length vector and then scale to target
+    return { x: vector.x / existingAmplitude * amplitude,
+            y: vector.y / existingAmplitude * amplitude }
+  }
+
+  function getAmplitude(vector) {
+    return Math.sqrt(Math.pow(vector.x, 2) + Math.pow(vector.y, 2));
+  }
+
+  function distanceBetween(pointA, pointB) {
+    return Math.sqrt(Math.pow(pointA.x - pointB.x, 2) + Math.pow(pointA.y - pointB.y, 2));
+  }
+
+  function save() {
+    let blob = new Blob(["<svg id=\"canvas\" viewBox=\"0 0 1000 1000\">", svg.html(), "</svg>"], 
+                        { type: "image/svg+xml;charset=utf-8" });
+    saveAs(blob, `${settings.name}.svg`);
+  }
+</script>

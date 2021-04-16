@@ -1,0 +1,149 @@
+<head>
+  <script type="text/javascript" src="https://d3js.org/d3.v6.min.js"></script>
+  <script type="text/javascript" src="noise.js"></script>
+  <script type="text/javascript" src="dat.gui.min.js"></script>
+  <script type="text/javascript" src="FileSaver.min.js"></script>
+  <style>
+    #canvas {
+      width: 100%;
+      height: 100%;
+    }
+    path {
+      fill: none;
+      stroke: #000000;
+      stroke-width: 0.5;
+    }
+    rect {
+      fill: #000000;
+      stroke: none;
+      opacity: 0.05;
+    }
+  </style>
+</head>
+<body>
+  <svg id="canvas" viewBox="0 0 1000 1000">
+  </svg>
+</body>
+<script>
+  noise.seed(Math.random());
+  let svg = d3.select("svg");
+  let gui = new dat.GUI(); // https://github.com/dataarts/dat.gui/blob/master/API.md
+
+  let settings = {
+    name: "genuary2021-31",
+    width: 600,
+    height: 800,
+    margin: 100,
+    lines: 100,
+    iterations: 100,
+    acceleration: 0.5,
+    jitter: 2,
+    noiseFactor: 1
+  };
+
+  // gui.add()
+  gui.add(settings, "width", 100, 2000, 10).onChange(draw);
+  gui.add(settings, "height", 100, 2000, 10).onChange(draw);
+  gui.add(settings, "margin", 0, 500, 10).onChange(draw);
+  gui.add(settings, "lines", 10, 2000, 10).onChange(draw);
+  gui.add(settings, "iterations", 1, 10000, 1).onChange(draw);
+  gui.add(settings, "acceleration", 0.01, 20, 0.01).onChange(draw);
+  gui.add(settings, "jitter", 0, 50, 0.1).onChange(draw);
+  gui.add(settings, "noiseFactor", 0, 10, 0.001).onChange(draw);
+  gui.add({save: () => save()}, "save");
+
+  draw();
+
+  function draw() {
+    svg.selectAll("*").remove();
+
+    const width = settings.width;
+    const height = settings.height;
+    const margin = settings.margin;
+    const lines = settings.lines;
+    const iterations = settings.iterations;
+    const acceleration = settings.acceleration;
+    const jitter = settings.jitter;
+    const noiseFactor = settings.noiseFactor;
+
+    const seedLine = { x: width / 2, y1: margin, y2: height - margin };
+    svg.append("g").attr("class", "center")
+        .append("rect")
+        .attr("x", 0)
+        .attr("y", 0)
+        .attr("width", seedLine.x)
+        .attr("height", height);
+    drawStraightSide(seedLine, width / 2, lines, noiseFactor);
+    drawCrazySide(seedLine, width / 2, lines, iterations, acceleration, jitter);
+  }
+
+  function drawStraightSide(seedLine, maxWidth, noOfLines, noiseFactor) {
+    const g = svg.append("g").attr("class", "straight");
+    const yIncrement = (seedLine.y2 - seedLine.y1) / noOfLines;
+    for (let i = 0; i < noOfLines; i++) {
+      const y = seedLine.y1 + i * yIncrement;
+      const x2 = seedLine.x + ((noise.simplex2(seedLine.x * noiseFactor, y * noiseFactor) + 1) / 2) * maxWidth;
+      g.append("path")
+        .attr("d", `M ${seedLine.x},${y} L ${x2},${y}`);
+    }
+  }
+
+  function drawCrazySide(seedLine, maxWidth, noOfLines, iterations, acceleration, jitter) {
+    const g = svg.append("g").attr("class", "crazy");
+    const lines = createInitialLinePoints(seedLine, noOfLines);
+    lines.forEach(function(line) {
+      for (let i = 0; i < iterations; i++) {
+        const point = line.points[line.points.length - 1];
+        const velocityDelta = noise.simplex2(point.x, point.y) * acceleration;
+        let newVelocity = line.velocity + velocityDelta;
+        let newPoint = { x: point.x + (line.direction.x * newVelocity) + (noise.simplex2(point.x, point.y) * jitter),
+                         y: point.y + (line.direction.y * newVelocity) + (noise.simplex2(point.y, point.x) * jitter) };
+        if (newPoint.x > seedLine.x) {
+          newVelocity *= -1;
+          newPoint = { x: point.x + (line.direction.x * newVelocity),
+                       y: point.y + (line.direction.y * newVelocity) };
+        }
+        line.velocity = newVelocity;
+        line.points.push(newPoint);
+      }
+    });
+    lines.forEach(function(line) {
+      g.append("path")
+        .datum(line.points)
+        .attr("d", d3.line()
+                      .x(d => d.x)
+                      .y(d => d.y)
+                      .curve(d3.curveBasis));
+    });
+  }
+
+  function createInitialLinePoints(seedLine, noOfLines) {
+    const lines = [];
+    const yIncrement = (seedLine.y2 - seedLine.y1) / noOfLines;
+    for (let i = 0; i < noOfLines; i++) {
+      lines.push({
+        points: [ { x: seedLine.x, y: seedLine.y1 + i * yIncrement } ],
+        velocity: 0,
+        direction: scaleVectorToAmplitude({ x: -1, y: 0}, 1)
+      });
+    }
+    return lines;
+  }
+
+  function scaleVectorToAmplitude(vector, amplitude) {
+    let existingAmplitude = getAmplitude(vector);
+    // reduce to unit length vector and then scale to target
+    return { x: vector.x / existingAmplitude * amplitude,
+            y: vector.y / existingAmplitude * amplitude }
+  }
+
+  function getAmplitude(vector) {
+    return Math.sqrt(Math.pow(vector.x, 2) + Math.pow(vector.y, 2));
+  }
+
+  function save() {
+    let blob = new Blob(["<svg id=\"canvas\" viewBox=\"0 0 1000 1000\">", svg.html(), "</svg>"], 
+                        { type: "image/svg+xml;charset=utf-8" });
+    saveAs(blob, `${settings.name}.svg`);
+  }
+</script>
